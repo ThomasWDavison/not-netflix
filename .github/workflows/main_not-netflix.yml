@@ -22,11 +22,17 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Create and start virtual environment
+      - name: Install virtualenv
         run: |
           pip install --upgrade pip
           pip install virtualenv
+
+      - name: Create virtual environment
+        run: |
           python -m venv venv
+          
+      - name: Start virtual environment
+        run: |
           source venv/bin/activate
       
       - name: Install dependencies
