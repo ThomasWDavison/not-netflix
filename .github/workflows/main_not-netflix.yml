@@ -24,6 +24,8 @@ jobs:
 
       - name: Create and start virtual environment
         run: |
+          pip install --upgrade pip
+          pip install virtualenv
           python -m venv venv
           source venv/bin/activate
       
