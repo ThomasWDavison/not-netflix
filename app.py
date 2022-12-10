@@ -113,13 +113,11 @@ def logout():
         session.pop('userId', None)
         session.pop('username', None)
         session.pop('userType', None)
-        return render_template('logout_success.html')
-    else:
-        return redirect(url_for('login'))
+    return redirect(url_for('login'))
 
 
 ######  CONSUMER INTERFACE  ######
-@app.route("/consumer/dashboard", methods=['GET'])
+@app.route("/consumer/dashboard", methods=['GET', 'POST'])
 def consumer_dashboard():
     if 'userId' not in session or session['userType'] != 'consumer':
         return redirect(url_for('login'))
@@ -128,8 +126,21 @@ def consumer_dashboard():
     metadata = []
     if response.status_code == 200:
         metadata = response.json()['value']
+   
+    msg = None
+    if request.method == 'POST':
+        search_metadata = []
+        search_key = request.form.get('search')
+        if search_key != '':
+            for video in metadata:
+                if search_key in str(video['title']):
+                    search_metadata.append(video)
+        if len(search_metadata) < 1:
+            msg = "No videos match the search terms"
+        else:
+            metadata = search_metadata
 
-    return render_template("consumer_dashboard.html", metadata=metadata, urlBlob=url_blobStorage, username=session['username'])
+    return render_template("consumer_dashboard.html", metadata=metadata, urlBlob=url_blobStorage, username=session['username'], msg=msg)
 
 @app.route("/consumer/watch/<video_id>", methods=['GET', 'POST'])
 def consumer_watch_video(video_id):
@@ -241,76 +252,51 @@ def delete_comment():
     requests.post(data={ 'msgType': 'comment delete request', 'id': comment_id }, url=url_addMsgToQ)
     return {}
 
+
 ######  CREATOR INTERFACE  ######
 @app.route("/creator/dashboard")
 def creator_dashboard():
-    if "userid" in session:
-        userid = session["userid"]
-        username = session["username"]
-        usertype = session["usertype"]
-        if usertype != "creator":
-            return redirect(url_for("login"))
+    if 'userId' not in session or session['userType'] != 'creator':
+        return redirect(url_for('login'))
         
-        msg = None
-        user_data = { "userid": userid }
-        response = requests.get(headers=user_data, url=url_getCreatorVideos)
+    msg = None
+    user_data = { "userid": session['userId'] }
+    response = requests.get(headers=user_data, url=url_getCreatorVideos)
 
-        video_links = []
-        if response.status_code == 200:
-            videos_metadata = response.json()['value']
-            for metadata in videos_metadata:
-                video_links.append({ "videoid": metadata['id'], "url" : url_blobStorage + metadata['filepath']})
-            if len(video_links) < 1:
-                msg="oops, you dont have any videos yet. Upload a video to start sharing now."
-        else:
-            msg=f"There was an error finding your videos: code {response.status_code}"
+    metadata = []
+    if response.status_code == 200:
+        metadata = response.json()
+        if len(metadata) < 1:
+            msg="oops, you dont have any videos yet. Upload a video to start sharing now."
+    else:
+        msg=f"There was an error finding your videos: code {response.status_code}"
 
-        return render_template("creator_dashboard.html", video_links=video_links, msg=msg, username=username)
-
-    return redirect(url_for("login"))
-
-@app.route("/creator/watch")
-def creator_watch_video():
-    if "userid" in session:
-        userid = session["userid"]
-        username = session["username"]
-        usertype = session["usertype"]
-        if usertype != "creator":
-            return redirect(url_for("login"))
-        
-        user_data = { "userid": userid }
-        response = requests.get(headers=user_data, url=url_getCreatorVideos)
+    return render_template("creator_dashboard.html", metadata=metadata, urlBlob=url_blobStorage, msg=msg, username=session['username'])
 
 @app.route("/creator/add_video", methods=["POST", "GET"])
 def creator_add_video():
-    if "userid" in session:
-        userid = session["userid"]
-        username = session["username"]
-        usertype = session["usertype"]
-        if usertype != "creator":
-            return redirect(url_for("login"))
+    if 'userId' not in session or session['userType'] != 'creator':
+        return redirect(url_for('login'))
 
-        if request.method == "POST":
-            video_metadata = {
-                "userID": userid,
-                "userName": username,
-                "title": request.form.get("title"),
-                "publisher": request.form.get("publisher"),
-                "producer": request.form.get("producer"),
-                "genre": request.form.get("genre"),
-                "ageRating": request.form.get("ageRating")
-            }
-            file = {
-                "file": ("video.mp4", request.files['file'].stream, "video/mp4")
-            }
-            response = requests.post(data=video_metadata, files=file, url=url_newVideo)
+    if request.method == "POST":
+        video_metadata = {
+            "userID": session['userId'],
+            "userName": session['username'],
+            "title": request.form.get("title"),
+            "publisher": request.form.get("publisher"),
+            "producer": request.form.get("producer"),
+            "genre": request.form.get("genre"),
+            "ageRating": request.form.get("ageRating")
+        }
+        file = {
+            "file": ("video.mp4", request.files['file'].stream, "video/mp4")
+        }
+        response = requests.post(data=video_metadata, files=file, url=url_newVideo)
 
-            if response.status_code != 200:
-                msg = "error response code " + str(response.status_code)
-                return render_template('creator_add_video.html', msg=msg)
-            else:
-                return render_template('creator_add_video_success.html')
-        
-        return render_template("creator_add_video.html", username=username)
-
-    return redirect(url_for("login"))
+        if response.status_code != 200:
+            msg = "error response code " + str(response.status_code)
+            return render_template('creator_add_video.html', msg=msg)
+        else:
+            return render_template('creator_add_video_success.html')
+    
+    return render_template("creator_add_video.html", username=session['username'])
