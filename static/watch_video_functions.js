@@ -41,3 +41,25 @@ function updateLikeDislike(type) {
             }
         })
 }
+
+
+function deleteComment(commentId) {
+    const comment = document.getElementById('userComment-' + commentId);
+    const delBtn = document.getElementById('delBtn-' + commentId);
+    const br = document.getElementById('br-' + commentId);
+    
+    // hide comment from user
+    comment.style.display = 'none';
+    delBtn.style.display = 'none';
+    br.style.display = 'none';
+
+    // send delete request to Azure
+    const requestOptions = {
+        method: 'POST',
+        headers: {
+            'commentId': commentId,
+        }
+    };
+
+    fetch("/video/comment_delete", requestOptions)
+}

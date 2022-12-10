@@ -14,6 +14,8 @@ url_getVideoMetadata = "https://prod-08.uksouth.logic.azure.com:443/workflows/3a
 url_newComment = "https://prod-11.uksouth.logic.azure.com:443/workflows/4aee4be966fc4078b4f94cb64fa29ef9/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=rI0x8Vi9G0y8Bw7B46lK7FwjU34IC8Aw6J2SgPVQs_A"
 url_getLikeDislike = "https://prod-02.uksouth.logic.azure.com:443/workflows/868bf0ec46ad4bedaa030074686c2207/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=zZ3ouwqWrN8EcNpI-psyb20h9iAvyWfe1b8UccbQLDM"
 url_newLikeDislike = "https://prod-29.uksouth.logic.azure.com:443/workflows/d2303974386244f8ae6855101a14e4a4/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=3zmHAR0CT3tgwpE3CvaSym3_N339MaCMId0ylz7cjbI"
+url_addMsgToQ = "https://prod-18.uksouth.logic.azure.com:443/workflows/18d267ffd1794f7ab243579e9a54abd9/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=WBULsN53zEDtAUDfD6nPsAsmKEFWWe7onuV3O5fIG-U"
+url_contentModerator = "https://not-netflix-cm.cognitiveservices.azure.com/contentmoderator/moderate/v1.0/ProcessText/Screen"
 
 ######  LOGIN / SIGN UP  ######
 @app.route("/signup", methods=['GET', 'POST'])
@@ -137,16 +139,35 @@ def consumer_watch_video(video_id):
     msg = {}
     
     if request.method == "POST":
-        ### add new comment
-        comment_metadata = {
-            'userid' : session['userId'],
-            'username' : session['username'],
-            'videoid' : video_id,
-            'commentContent' : request.form.get('comment')
+        ### moderate comment text
+        modCom_headers = {
+            'Content-Type': 'text/plain',
+            'Ocp-Apim-Subscription-Key': '1bb4113de2024b608f8c15e805eaa3e8'
         }
-        comment_response = requests.post(data=comment_metadata, url=url_newComment)
-        if comment_response.status_code != 200:
-            msg['comment'] = "Unable to post comment: response code " + str(comment_response.status_code)
+        modCom_params = {
+            'autocorrect': 'True',
+            'PII': 'True'
+        }
+        modCom_response = requests.post(headers=modCom_headers, params=modCom_params, data=request.form.get('comment'), url=url_contentModerator)
+        if modCom_response.status_code == 200:
+            if modCom_response.json()['Language'] == 'eng':
+                if not 'PII' in modCom_response.json():
+                    ### post comment to Azure CosmosDB
+                    comment_metadata = {
+                        'userid' : session['userId'],
+                        'username' : session['username'],
+                        'videoid' : video_id,
+                        'commentContent' : request.form.get('comment')
+                    }
+                    comment_response = requests.post(data=comment_metadata, url=url_newComment)
+                    if comment_response.status_code != 200:
+                        msg['comment'] = "(Unable to post) response code " + str(comment_response.status_code)
+                else:
+                    msg['comment'] = "(moderation) Refrain from entering your personal information!"
+            else:
+                msg['comment'] = "(moderation) English only in the comments!"
+        else:
+            msg['comment'] = "(moderation) response code " + str(modCom_response.status_code)
     
     ### fetch video content & comments to display
     video_response = requests.get(headers={ "videoid": video_id }, url=url_getVideoMetadata)
@@ -175,7 +196,7 @@ def consumer_watch_video(video_id):
 
     return render_template("consumer_watch_video.html", session=session, metadata=metadata, comments=comments, likeDislike=likeDislike, msg=msg)
 
-@app.route("/video/likeDislike", methods=["POST"])
+@app.route("/video/likeDislike", methods=['POST'])
 def update_like_dislike():
     if "userId" not in session or session["userType"] != "consumer":
         return redirect()
@@ -212,6 +233,13 @@ def update_like_dislike():
 
     return { 'likeCount': updated_likeCount, 'dislikeCount': updated_dislikeCount }
 
+@app.route("/video/comment_delete", methods=['POST'])
+def delete_comment():
+    if "userId" not in session or session["userType"] != "consumer":
+        return redirect() 
+    comment_id = request.headers.get('commentId')
+    requests.post(data={ 'msgType': 'comment delete request', 'id': comment_id }, url=url_addMsgToQ)
+    return {}
 
 ######  CREATOR INTERFACE  ######
 @app.route("/creator/dashboard")
